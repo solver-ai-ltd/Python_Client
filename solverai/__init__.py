@@ -1,4 +1,4 @@
-from .client_config import token, datamanagerUrl, computerUrl
+from .client_config import get_setup_data
 from .IdsFileManager import IdsFileManager
 from .SolverAiClientCompute import SolverAiClientCompute
 from .SolverAiClientExceptions import SolverAiClientExceptions
@@ -8,7 +8,7 @@ from .SolverAiComputeResults import SolverAiComputeResults
 from .SolverAiResultsWriter import SolverAiResultsWriter
 
 __all__ = [
-    "token", "datamanagerUrl", "computerUrl",
+    "get_setup_data",
     "IdsFileManager",
     "SolverAiClientCompute",
     "SolverAiClientExceptions",
