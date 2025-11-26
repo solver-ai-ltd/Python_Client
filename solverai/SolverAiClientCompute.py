@@ -2,9 +2,9 @@ import requests
 import json
 from time import sleep
 
-from SolverAiComputeInput import SolverAiComputeInput
-from SolverAiComputeResults import SolverAiComputeResults
-from SolverAiClientExceptions import SetupInExecutionException
+from .SolverAiComputeInput import SolverAiComputeInput
+from .SolverAiComputeResults import SolverAiComputeResults
+from .SolverAiClientExceptions import SetupInExecutionException
 
 
 class SolverAiClientCompute:

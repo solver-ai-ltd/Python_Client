@@ -1,5 +1,5 @@
 import csv
-import SolverAiComputeResults
+from .SolverAiComputeResults import SolverAiComputeResults
 
 
 class SolverAiResultsWriter:
