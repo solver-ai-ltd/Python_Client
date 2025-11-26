@@ -4,7 +4,10 @@ def get_setup_data(setup_file_path):
 
     config = {}
     for line in lines:
-        key, value = line.strip().split('=')
+        sitrp_line = line.strip()
+        if not sitrp_line or sitrp_line.startswith('#'):
+            continue
+        key, value = sitrp_line.split('=')
         config[key] = value
 
     token = config.get('token', '')
