@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solverai"
+version = "0.1.0"
+description = "Base SOLVER-AI Python client"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name="SOLVER-AI LTD"}]
+dependencies = [
+  "requests>=2.26.0",
+  "requests-oauthlib>=2.0.0",
+  "pandas>=2.1.2",
+]
+
+[tool.setuptools]
+packages = ["solverai"]
+
+[tool.setuptools.package-data]
+solverai = ["*.toml", "*.yaml", "*.json"]
