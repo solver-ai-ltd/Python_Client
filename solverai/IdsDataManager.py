@@ -56,10 +56,13 @@ class IdsDataManager:
             self.__data = json.load(f)
         return self.retrieve_from_memory()
 
+    def getProblemId(self):
+        return self.__data['problem_id']
+
     def readProblemId(self):
         with open(self.__filepath, 'r') as f:
             self.__data = json.load(f)
-        return self.__data['problem_id']
+        return self.getProblemId()
 
     def removeFile(self):
         remove(self.__filepath)
