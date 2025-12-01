@@ -15,7 +15,7 @@ class IdsDataManager:
         soft_data_ids,
         problem_id
     ):
-        self.store_in_memory(
+        self.storeInMemory(
             equation_ids,
             code_ids,
             hard_data_ids,
@@ -25,7 +25,7 @@ class IdsDataManager:
         with open(self.__filepath, 'w') as f:
             json.dump(self.__data, f)
 
-    def store_in_memory(
+    def storeInMemory(
         self,
         equation_ids,
         code_ids,
@@ -41,7 +41,7 @@ class IdsDataManager:
             'problem_id': problem_id
         }
 
-    def retrieve_from_memory(self):
+    def retrieveFromMemory(self):
         return self.__data['equation_ids'], \
             self.__data['code_ids'], \
             self.__data['hard_data_ids'], \
@@ -54,7 +54,7 @@ class IdsDataManager:
     def read(self):
         with open(self.__filepath, 'r') as f:
             self.__data = json.load(f)
-        return self.retrieve_from_memory()
+        return self.retrieveFromMemory()
 
     def getProblemId(self):
         return self.__data['problem_id']
