@@ -1,5 +1,5 @@
 from .client_config import get_setup_data
-from .IdsFileManager import IdsFileManager
+from .IdsDataManager import IdsDataManager
 from .SolverAiClientCompute import SolverAiClientCompute
 from .SolverAiClientExceptions import SetupInExecutionException
 from .SolverAiClientSetup import SolverAiClientSetup
@@ -9,7 +9,7 @@ from .SolverAiResultsWriter import SolverAiResultsWriter
 
 __all__ = [
     "get_setup_data",
-    "IdsFileManager",
+    "IdsDataManager",
     "SolverAiClientCompute",
     "SetupInExecutionException",
     "SolverAiClientSetup",
