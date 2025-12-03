@@ -420,14 +420,16 @@ class SolverAiClientSetup:
         filePath_or_df: Union[str, pd.DataFrame],
         variablesStringIn: str,
         variablesStringOut: str,
-        vectorizationIndices: str = ''
+        vectorizationIndices: str = '',
+        categoricalVariablesStringIn: str = ''
     ):
         _filePath_or_df = (filePath_or_df, 'csv')
         data = {
             "name": name,
             "variablesStringIn": variablesStringIn,
             "variablesStringOut": variablesStringOut,
-            "vectorizationIndices": vectorizationIndices
+            "vectorizationIndices": vectorizationIndices,
+            "categoricalVariablesStringIn": categoricalVariablesStringIn
         }
         return self._postPatch(self.__softDataSuffix, data, _filePath_or_df)
 
@@ -438,7 +440,8 @@ class SolverAiClientSetup:
         filePath_or_df: Union[str, pd.DataFrame] = None,
         variablesStringIn: str = '',
         variablesStringOut: str = '',
-        vectorizationIndices: str = ''
+        vectorizationIndices: str = '',
+        categoricalVariablesStringIn: str = ''
     ):
         _filePath_or_df = None
         if filePath_or_df is not None or filePath_or_df != '':
@@ -452,6 +455,8 @@ class SolverAiClientSetup:
             data['variablesStringOut'] = variablesStringOut
         if vectorizationIndices:
             data['vectorizationIndices'] = vectorizationIndices
+        if categoricalVariablesStringIn:
+            data['categoricalVariablesStringIn'] = categoricalVariablesStringIn
         return self._postPatch(self.__softDataSuffix, data, _filePath_or_df, id)
 
     def postProblem(
