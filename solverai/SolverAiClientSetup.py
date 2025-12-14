@@ -223,12 +223,12 @@ class SolverAiClientSetup:
             if problemId is not None:
                 # Problem must be deleted first or will not allow deletion
                 # of models
-                if isinstance(problemId, int):
+                if isinstance(problemId, str):
                     self.__deleteIds(
                         self.__problemSuffix, [problemId], all_errors
                     )
                 elif isinstance(problemId, list) \
-                        and all(isinstance(x, int) for x in problemId):
+                        and all(isinstance(x, str) for x in problemId):
                     self.__deleteIds(
                         self.__problemSuffix, problemId, all_errors
                     )
@@ -244,7 +244,7 @@ class SolverAiClientSetup:
         if len(errors):
             raise Exception(errors)
 
-    def __deleteId(self, urlSuffix: str, id: int) -> str:
+    def __deleteId(self, urlSuffix: str, id: str) -> str:
         error = ''
         url = f'{self.__base_url_DM}{urlSuffix}/{id}/'
         response = delete(url, headers=self.__headers)

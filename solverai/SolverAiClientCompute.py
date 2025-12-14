@@ -9,7 +9,7 @@ from .SolverAiClientExceptions import SetupInExecutionException
 
 class SolverAiClientCompute:
 
-    def __init__(self, computerUrl: str, token: str, problemId: int) -> None:
+    def __init__(self, computerUrl: str, token: str, problemId: str) -> None:
         self.__base_url_Computer = computerUrl + "/"
         self.__problemId = problemId
         self.__headers = {
