@@ -246,7 +246,7 @@ class SolverAiClientSetup:
 
     def __deleteId(self, urlSuffix: str, id: int) -> str:
         error = ''
-        url = f'{self.__base_url_DM}{urlSuffix}/{id}'
+        url = f'{self.__base_url_DM}{urlSuffix}/{id}/'
         response = delete(url, headers=self.__headers)
         if not self.__isStatusCodeOk(response):
             error = f'Failed Deleting: {url}\n'
