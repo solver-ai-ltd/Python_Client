@@ -535,9 +535,16 @@ class SolverAiClientSetup:
         problem_id = problem_ids[0]  # most recent match
         detail = self.__getOne(self.__problemSuffix, problem_id)
 
+        def extract_ids(ids: list[dict]) -> list[str]:
+            return [id['id'] for id in ids]
+
         equation_ids = detail.get("equations", []) or []
         code_ids = detail.get("codes", []) or []
         harddata_ids = detail.get("harddatas", []) or []
         softdata_ids = detail.get("softdatas", []) or []
 
-        return problem_id, equation_ids, code_ids, harddata_ids, softdata_ids
+        return problem_id, \
+            extract_ids(equation_ids), \
+            extract_ids(code_ids), \
+            extract_ids(harddata_ids), \
+            extract_ids(softdata_ids)
