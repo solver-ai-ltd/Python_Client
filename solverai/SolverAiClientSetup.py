@@ -1,4 +1,5 @@
 from typing import Union
+from re import escape
 from requests import get, post, patch, delete
 from json import loads, dumps
 from re import search
@@ -498,3 +499,45 @@ class SolverAiClientSetup:
         if len(softIds):
             data['softdatas'] = softIds
         return self._postPatch(self.__problemSuffix, data, None, id)
+
+    def __getOne(self, urlSuffix: str, id: str) -> dict:
+        """GET /<urlSuffix>/<id>/ and return parsed JSON dict."""
+        url = f'{self.__base_url_DM}{urlSuffix}/{id}/'
+        response = get(url, headers=self.__headers)
+        if not self.__isStatusCodeOk(response):
+            # keep error style consistent with your other methods
+            try:
+                raise Exception(loads(response.text).get('detail', response.text))
+            except Exception:
+                raise Exception(f"Failed GET: {url} (status={response.status_code})")
+
+        try:
+            return loads(response.text)
+        except Exception:
+            raise Exception("Failed retrieving data.")
+
+    def getProblemModuleIdsByName(self, problem_name: str):
+        """
+        Given a problem name (exact match), returns:
+          (problem_id, equation_ids, code_ids, harddata_ids, softdata_ids)
+
+        Note:
+        - If multiple problems share the same name, this returns the most recent one
+          (because the API list is ordered by -dateTime, -id in get_queryset()).
+        """
+        # Exact match (escape to avoid regex surprises)
+        nameRegex = f"^{escape(problem_name)}$"
+
+        problem_ids = self.__getIds(self.__problemSuffix, nameRegex)
+        if not problem_ids:
+            raise Exception(f"No problem found with name='{problem_name}'")
+
+        problem_id = problem_ids[0]  # most recent match
+        detail = self.__getOne(self.__problemSuffix, problem_id)
+
+        equation_ids = detail.get("equations", []) or []
+        code_ids = detail.get("codes", []) or []
+        harddata_ids = detail.get("harddatas", []) or []
+        softdata_ids = detail.get("softdatas", []) or []
+
+        return problem_id, equation_ids, code_ids, harddata_ids, softdata_ids
