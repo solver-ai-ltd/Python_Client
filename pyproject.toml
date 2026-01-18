@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solverai"
-version = "2025.1.0a15"
+version = "2025.1.0a16"
 description = "Base SOLVER-AI Python client"
 readme = "README.md"
 requires-python = ">=3.9"

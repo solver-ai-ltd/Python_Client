@@ -56,6 +56,18 @@ class IdsDataManager:
             self.__data = json.load(f)
         return self.retrieveFromMemory()
 
+    def getEquationIds(self):
+        return self.__data['equation_ids']
+
+    def getCodeIds(self):
+        return self.__data['code_ids']
+
+    def getHardDataIds(self):
+        return self.__data['hard_data_ids']
+
+    def getSoftDataIds(self):
+        return self.__data['soft_data_ids']
+
     def getProblemId(self):
         return self.__data['problem_id']
 
