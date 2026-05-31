@@ -119,7 +119,6 @@ class SolverAiClientSetupTests(unittest.TestCase):
             self.assertEqual(uploaded[1].getvalue(), "a,b\n1,2\n")
             self.assertEqual(uploaded[2], "text/csv")
 
-    @unittest.expectedFailure
     def test_patch_hard_data_without_file_uses_metadata_only_patch(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientSetup")
@@ -137,6 +136,21 @@ class SolverAiClientSetupTests(unittest.TestCase):
                 },
             )
             self.assertEqual(kwargs["data"], '{"name": "renamed"}')
+
+    def test_patch_hard_data_accepts_dataframe_replacement(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientSetup")
+            env.requests.patch.return_value = json_response(200, {"id": "hard-1"})
+            client = module.SolverAiClientSetup("http://datamanagerapi:8000", "token")
+            dataframe = env.pandas.DataFrame([[3, 4]], columns=["a", "b"])
+
+            client.patchHardData("hard-1", filePath_or_df=dataframe)
+
+            _, kwargs = env.requests.patch.call_args
+            uploaded = kwargs["files"]["csv"]
+            self.assertEqual(uploaded[0], "data.csv")
+            self.assertEqual(uploaded[1].getvalue(), "a,b\n3,4\n")
+            self.assertEqual(uploaded[2], "text/csv")
 
     def test_post_problem_builds_expected_problem_payload(self):
         with solverai_test_environment() as env:
@@ -162,7 +176,6 @@ class SolverAiClientSetupTests(unittest.TestCase):
                 ),
             )
 
-    @unittest.expectedFailure
     def test_patch_soft_data_without_file_uses_metadata_only_patch(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientSetup")
@@ -180,6 +193,21 @@ class SolverAiClientSetupTests(unittest.TestCase):
                 },
             )
             self.assertEqual(kwargs["data"], '{"variablesStringOut": "y"}')
+
+    def test_patch_soft_data_accepts_dataframe_replacement(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientSetup")
+            env.requests.patch.return_value = json_response(200, {"id": "soft-1"})
+            client = module.SolverAiClientSetup("http://datamanagerapi:8000", "token")
+            dataframe = env.pandas.DataFrame([[5, 6]], columns=["x", "y"])
+
+            client.patchSoftData("soft-1", filePath_or_df=dataframe)
+
+            _, kwargs = env.requests.patch.call_args
+            uploaded = kwargs["files"]["csv"]
+            self.assertEqual(uploaded[0], "data.csv")
+            self.assertEqual(uploaded[1].getvalue(), "x,y\n5,6\n")
+            self.assertEqual(uploaded[2], "text/csv")
 
     def test_flush_post_batch_returns_grouped_ids_in_submission_order(self):
         with solverai_test_environment() as env:

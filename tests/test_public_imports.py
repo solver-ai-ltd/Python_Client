@@ -13,6 +13,7 @@ class PublicImportTests(unittest.TestCase):
                 "validate_token",
                 "IdsDataManager",
                 "SolverAiClientCompute",
+                "SolverAiProblemStatusInfo",
                 "SetupInExecutionException",
                 "SolverAiClientSetup",
                 "SolverAiComputeInput",
@@ -21,6 +22,7 @@ class PublicImportTests(unittest.TestCase):
             }
 
             self.assertEqual(set(package.__all__), expected_names)
+            self.assertEqual(len(package.__all__), len(expected_names))
 
     def test_top_level_imports_exist_for_exported_names(self):
         with solverai_test_environment() as env:

@@ -1,6 +1,6 @@
 from .client_config import get_setup_data, validate_token
 from .IdsDataManager import IdsDataManager
-from .SolverAiClientCompute import SolverAiClientCompute
+from .SolverAiClientCompute import SolverAiClientCompute, SolverAiProblemStatusInfo
 from .SolverAiClientExceptions import SetupInExecutionException
 from .SolverAiClientSetup import SolverAiClientSetup
 from .SolverAiComputeInput import SolverAiComputeInput
@@ -12,6 +12,7 @@ __all__ = [
     "validate_token",
     "IdsDataManager",
     "SolverAiClientCompute",
+    "SolverAiProblemStatusInfo",
     "SetupInExecutionException",
     "SolverAiClientSetup",
     "SolverAiComputeInput",

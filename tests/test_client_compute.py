@@ -19,6 +19,126 @@ def build_solver_results_payload():
 
 class SolverAiClientComputeTests(unittest.TestCase):
 
+    def test_get_problem_status_info_returns_ready_state(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(200, "ready")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            status_info = client.getProblemStatusInfo()
+
+            self.assertEqual(status_info.http_status_code, 200)
+            self.assertEqual(status_info.state, "READY")
+            self.assertEqual(status_info.detail, "ready")
+            self.assertTrue(status_info.is_ready)
+            self.assertFalse(status_info.is_processing)
+            self.assertFalse(status_info.is_error)
+            self.assertFalse(status_info.is_updating)
+            self.assertFalse(status_info.require_not_updating)
+            self.assertEqual(status_info.raw_status_text, "ready")
+
+    def test_get_problem_status_info_returns_processing_state(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(202, "setup in execution")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            status_info = client.getProblemStatusInfo()
+
+            self.assertEqual(status_info.http_status_code, 202)
+            self.assertEqual(status_info.state, "PROCESSING")
+            self.assertTrue(status_info.is_processing)
+            self.assertFalse(status_info.is_ready)
+
+    def test_get_problem_status_info_returns_not_ready_state(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                400,
+                "NOT_READY: setup required",
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            status_info = client.getProblemStatusInfo()
+
+            self.assertEqual(status_info.http_status_code, 400)
+            self.assertEqual(status_info.state, "NOT_READY")
+            self.assertEqual(status_info.detail, "NOT_READY: setup required")
+            self.assertFalse(status_info.is_ready)
+            self.assertFalse(status_info.is_processing)
+            self.assertFalse(status_info.is_error)
+
+    def test_get_problem_status_info_returns_error_state(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                400,
+                "ERROR: setup failed",
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            status_info = client.getProblemStatusInfo()
+
+            self.assertEqual(status_info.http_status_code, 400)
+            self.assertEqual(status_info.state, "ERROR")
+            self.assertTrue(status_info.is_error)
+            self.assertEqual(status_info.error_origin, "unknown")
+
+    def test_get_problem_status_info_supports_require_not_updating(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(202, "updating")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            status_info = client.getProblemStatusInfo(require_not_updating=True)
+
+            self.assertEqual(status_info.state, "UPDATING")
+            self.assertTrue(status_info.is_updating)
+            self.assertTrue(status_info.require_not_updating)
+            env.requests.get.assert_called_once_with(
+                "http://computer:8001/check_problem_status/problem-1",
+                headers={
+                    "Authorization": "Token token",
+                    "Content-Type": "application/json",
+                },
+                params={"require_not_updating": "true"},
+            )
+
+    def test_get_problem_status_info_raises_on_malformed_json(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = FakeResponse(200, "not-json")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            with self.assertRaises(Exception) as ctx:
+                client.getProblemStatusInfo()
+
+            self.assertEqual(str(ctx.exception), "Failed retrieving data.")
+
     def test_get_problem_status_returns_inputs_and_outputs(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
@@ -77,7 +197,7 @@ class SolverAiClientComputeTests(unittest.TestCase):
 
             self.assertIn("bad request", str(ctx.exception))
 
-    def test_get_problem_setup_returns_inputs_and_outputs(self):
+    def test_get_inputs_outputs_returns_inputs_and_outputs(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
             env.requests.get.return_value = json_response(
@@ -90,7 +210,7 @@ class SolverAiClientComputeTests(unittest.TestCase):
                 "problem-1",
             )
 
-            inputs, outputs = client.getProblemSetup()
+            inputs, outputs = client.getInputsOutputs()
 
             self.assertEqual(inputs, ["x"])
             self.assertEqual(outputs, ["y"])
@@ -101,6 +221,22 @@ class SolverAiClientComputeTests(unittest.TestCase):
                     "Content-Type": "application/json",
                 },
             )
+
+    def test_get_problem_setup_returns_inputs_and_outputs(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            client.getInputsOutputs = Mock(return_value=(["x"], ["y"]))
+
+            inputs, outputs = client.getProblemSetup()
+
+            self.assertEqual(inputs, ["x"])
+            self.assertEqual(outputs, ["y"])
+            client.getInputsOutputs.assert_called_once_with()
 
     def test_get_problem_setup_raises_on_malformed_json(self):
         with solverai_test_environment() as env:
