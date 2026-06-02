@@ -5,7 +5,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from time import sleep
+from time import monotonic, sleep
 from typing import Optional
 
 from .SolverAiComputeInput import SolverAiComputeInput
@@ -191,6 +191,65 @@ class SolverAiClientCompute:
             raw_status_text=raw_status_text,
             error_origin='unknown' if state == 'ERROR' else None,
         )
+
+    def waitForProblemReady(
+        self,
+        require_not_updating: bool = False,
+        poll_interval_seconds: float = 1.0,
+        max_wait_seconds: Optional[float] = None,
+    ) -> SolverAiProblemStatusInfo:
+        deadline = None
+        if max_wait_seconds is not None:
+            deadline = monotonic() + max_wait_seconds
+
+        has_polled = False
+        while True:
+            if has_polled and deadline is not None and monotonic() >= deadline:
+                raise TimeoutError(
+                    'Timed out waiting for the problem to become ready.'
+                )
+
+            status_info = self.getProblemStatusInfo(
+                require_not_updating=require_not_updating,
+            )
+            has_polled = True
+
+            if status_info.is_ready:
+                return status_info
+
+            if status_info.is_error:
+                raise RuntimeError(
+                    f'Problem entered terminal state: '
+                    f'{status_info.state} ({status_info.detail}).'
+                )
+
+            if status_info.state == 'NOT_READY':
+                raise RuntimeError(
+                    f'Problem is not ready to wait on: '
+                    f'{status_info.detail}.'
+                )
+
+            is_transient_processing = status_info.is_processing
+            is_transient_updating = (
+                require_not_updating and status_info.is_updating
+            )
+            if not (is_transient_processing or is_transient_updating):
+                raise RuntimeError(
+                    f'Unexpected wait state: '
+                    f'{status_info.state} ({status_info.detail}).'
+                )
+
+            if deadline is None:
+                sleep(poll_interval_seconds)
+                continue
+
+            remaining_seconds = deadline - monotonic()
+            if remaining_seconds <= 0:
+                raise TimeoutError(
+                    'Timed out waiting for the problem to become ready.'
+                )
+
+            sleep(min(poll_interval_seconds, remaining_seconds))
 
     def __runWithDrainRetry(self, operation):
         drain_retries_used = 0

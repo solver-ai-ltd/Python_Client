@@ -159,6 +159,218 @@ class SolverAiClientComputeTests(unittest.TestCase):
             self.assertIn("Draining", str(ctx.exception))
             self.assertEqual(env.requests.get.call_count, 1)
 
+    def test_wait_for_problem_ready_returns_immediately_on_ready(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(200, "ready")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                status_info = client.waitForProblemReady()
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(status_info.state, "READY")
+            self.assertTrue(status_info.is_ready)
+            mock_sleep.assert_not_called()
+
+    def test_wait_for_problem_ready_polls_processing_until_ready(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(202, "setup in execution"),
+                json_response(200, "ready"),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                status_info = client.waitForProblemReady(
+                    poll_interval_seconds=2.5,
+                )
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(status_info.state, "READY")
+            mock_sleep.assert_called_once_with(2.5)
+
+    def test_wait_for_problem_ready_with_require_not_updating_polls_until_ready(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(202, "setup in execution"),
+                json_response(202, "updating"),
+                json_response(200, "ready"),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                status_info = client.waitForProblemReady(
+                    require_not_updating=True,
+                )
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(status_info.state, "READY")
+            self.assertTrue(status_info.require_not_updating)
+            self.assertEqual(mock_sleep.call_args_list, [call(1.0), call(1.0)])
+            self.assertEqual(
+                env.requests.get.call_args_list,
+                [
+                    call(
+                        "http://computer:8001/check_problem_status/problem-1",
+                        headers={
+                            "Authorization": "Token token",
+                            "Content-Type": "application/json",
+                        },
+                        params={"require_not_updating": "true"},
+                    ),
+                    call(
+                        "http://computer:8001/check_problem_status/problem-1",
+                        headers={
+                            "Authorization": "Token token",
+                            "Content-Type": "application/json",
+                        },
+                        params={"require_not_updating": "true"},
+                    ),
+                    call(
+                        "http://computer:8001/check_problem_status/problem-1",
+                        headers={
+                            "Authorization": "Token token",
+                            "Content-Type": "application/json",
+                        },
+                        params={"require_not_updating": "true"},
+                    ),
+                ],
+            )
+
+    def test_wait_for_problem_ready_raises_runtime_error_on_not_ready(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                400,
+                "NOT_READY: setup required",
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    client.waitForProblemReady()
+            finally:
+                module.sleep = original_sleep
+
+            self.assertIn("NOT_READY", str(ctx.exception))
+            mock_sleep.assert_not_called()
+
+    def test_wait_for_problem_ready_raises_runtime_error_on_error(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                400,
+                "ERROR: setup failed",
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    client.waitForProblemReady()
+            finally:
+                module.sleep = original_sleep
+
+            self.assertIn("ERROR", str(ctx.exception))
+            mock_sleep.assert_not_called()
+
+    def test_wait_for_problem_ready_raises_timeout_error(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(202, "setup in execution"),
+                json_response(202, "setup in execution"),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            original_monotonic = module.monotonic
+            mock_sleep = Mock()
+            mock_monotonic = Mock(side_effect=[0.0, 0.0, 0.75])
+            module.sleep = mock_sleep
+            module.monotonic = mock_monotonic
+
+            try:
+                with self.assertRaises(TimeoutError):
+                    client.waitForProblemReady(max_wait_seconds=0.75)
+            finally:
+                module.sleep = original_sleep
+                module.monotonic = original_monotonic
+
+            mock_sleep.assert_called_once_with(0.75)
+
+    def test_wait_for_problem_ready_does_not_poll_past_timeout_boundary(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(202, "setup in execution"),
+                json_response(200, "ready"),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            original_monotonic = module.monotonic
+            mock_sleep = Mock()
+            mock_monotonic = Mock(side_effect=[0.0, 0.0, 0.75])
+            module.sleep = mock_sleep
+            module.monotonic = mock_monotonic
+
+            try:
+                with self.assertRaises(TimeoutError):
+                    client.waitForProblemReady(max_wait_seconds=0.75)
+            finally:
+                module.sleep = original_sleep
+                module.monotonic = original_monotonic
+
+            mock_sleep.assert_called_once_with(0.75)
+            self.assertEqual(env.requests.get.call_count, 1)
+
     def test_get_problem_status_returns_inputs_and_outputs(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
