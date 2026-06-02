@@ -1,6 +1,7 @@
 import tempfile
 import unittest
-from unittest.mock import Mock
+from datetime import datetime, timezone
+from unittest.mock import Mock, call
 
 from _solverai_test_support import FakeResponse, json_response, solverai_test_environment
 
@@ -139,6 +140,25 @@ class SolverAiClientComputeTests(unittest.TestCase):
 
             self.assertEqual(str(ctx.exception), "Failed retrieving data.")
 
+    def test_get_problem_status_info_does_not_retry_on_draining_status_response(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                503,
+                {"detail": "Draining"},
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            with self.assertRaises(Exception) as ctx:
+                client.getProblemStatusInfo()
+
+            self.assertIn("Draining", str(ctx.exception))
+            self.assertEqual(env.requests.get.call_count, 1)
+
     def test_get_problem_status_returns_inputs_and_outputs(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
@@ -197,6 +217,25 @@ class SolverAiClientComputeTests(unittest.TestCase):
 
             self.assertIn("bad request", str(ctx.exception))
 
+    def test_get_problem_status_does_not_retry_on_draining_status_response(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                503,
+                {"detail": "Draining"},
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            with self.assertRaises(Exception) as ctx:
+                client.getProblemStatus()
+
+            self.assertIn("Draining", str(ctx.exception))
+            self.assertEqual(env.requests.get.call_count, 1)
+
     def test_get_inputs_outputs_returns_inputs_and_outputs(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
@@ -238,6 +277,40 @@ class SolverAiClientComputeTests(unittest.TestCase):
             self.assertEqual(outputs, ["y"])
             client.getInputsOutputs.assert_called_once_with()
 
+    def test_get_problem_setup_retries_after_draining_response(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                json_response(200, {"inputs": ["x"], "outputs": ["y"]}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.25)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                inputs, outputs = client.getProblemSetup()
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(inputs, ["x"])
+            self.assertEqual(outputs, ["y"])
+            mock_sleep.assert_called_once_with(60.0)
+            mock_random.assert_not_called()
+
     def test_get_problem_setup_raises_on_malformed_json(self):
         with solverai_test_environment() as env:
             module = env.module("SolverAiClientCompute")
@@ -270,6 +343,101 @@ class SolverAiClientComputeTests(unittest.TestCase):
                 client.getProblemSetup()
 
             self.assertIn("bad request", str(ctx.exception))
+
+    def test_get_inputs_outputs_preserves_non_drain_202_behavior(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.return_value = json_response(
+                202,
+                "setup in execution",
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            with self.assertRaises(Exception) as ctx:
+                client.getInputsOutputs()
+
+            self.assertEqual(str(ctx.exception), "Failed retrieving data.")
+
+    def test_get_inputs_outputs_retries_after_draining_response(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                json_response(200, {"inputs": ["x"], "outputs": ["y"]}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.25)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                inputs, outputs = client.getInputsOutputs()
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(inputs, ["x"])
+            self.assertEqual(outputs, ["y"])
+            mock_sleep.assert_called_once_with(60.0)
+            mock_random.assert_not_called()
+
+    def test_get_inputs_outputs_honors_http_date_retry_after(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            env.requests.get.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "Thu, 01 Jan 2026 00:01:00 GMT"},
+                ),
+                json_response(200, {"inputs": ["x"], "outputs": ["y"]}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+
+            class FixedDateTime:
+                @staticmethod
+                def now(tz=None):
+                    return datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+            original_sleep = module.sleep
+            original_random = module.random.random
+            original_datetime = module.datetime
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.25)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+            module.datetime = FixedDateTime
+
+            try:
+                inputs, outputs = client.getInputsOutputs()
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+                module.datetime = original_datetime
+
+            self.assertEqual(inputs, ["x"])
+            self.assertEqual(outputs, ["y"])
+            mock_sleep.assert_called_once_with(60.0)
+            mock_random.assert_not_called()
 
     def test_run_solver_returns_results_on_successful_200(self):
         with solverai_test_environment() as env:
@@ -370,6 +538,543 @@ class SolverAiClientComputeTests(unittest.TestCase):
 
             self.assertEqual(results.getNumberOfResults(), 1)
             mock_sleep.assert_called_once_with(5)
+
+    def test_run_solver_retries_after_draining_response_with_retry_after(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.25)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.0)
+            mock_random.assert_not_called()
+
+    def test_run_solver_uses_default_drain_retry_interval_with_jitter(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(503, {"detail": "Draining"}),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.25)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.25)
+            mock_random.assert_called_once_with()
+
+    def test_run_solver_falls_back_to_default_when_retry_after_is_nan(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "NaN"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.125)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.125)
+            mock_random.assert_called_once_with()
+
+    def test_run_solver_falls_back_to_default_when_retry_after_is_infinite(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "1e309"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.875)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.875)
+            mock_random.assert_called_once_with()
+
+    def test_run_solver_falls_back_to_default_when_retry_after_is_malformed(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "tomorrow-ish"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.75)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.75)
+            mock_random.assert_called_once_with()
+
+    def test_run_solver_ignores_retry_after_when_disabled(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "17"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+                honor_retry_after=False,
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.5)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(60.5)
+            mock_random.assert_called_once_with()
+
+    def test_run_solver_honors_fail_fast_drain_mode(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            exceptions_module = env.module("SolverAiClientExceptions")
+            env.requests.post.return_value = json_response(
+                503,
+                {"detail": "Draining"},
+                headers={"Retry-After": "60"},
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+                drain_max_retries=0,
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(
+                    exceptions_module.SolverAiDrainingException
+                ) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(ctx.exception.retry_after_seconds, 60)
+            mock_sleep.assert_not_called()
+
+    def test_run_solver_honors_zero_retry_after(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "0"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.5)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(0.0)
+            mock_random.assert_not_called()
+
+    def test_run_solver_clamps_negative_retry_after_to_zero(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "-5"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            original_random = module.random.random
+            mock_sleep = Mock()
+            mock_random = Mock(return_value=0.5)
+            module.sleep = mock_sleep
+            module.random.random = mock_random
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+                module.random.random = original_random
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            mock_sleep.assert_called_once_with(0.0)
+            mock_random.assert_not_called()
+
+    def test_run_solver_raises_draining_exception_after_retry_budget_exhausted(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            exceptions_module = env.module("SolverAiClientExceptions")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(
+                    exceptions_module.SolverAiDrainingException
+                ) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(ctx.exception.retry_after_seconds, 60)
+            mock_sleep.assert_called_once_with(60.0)
+
+    def test_run_solver_does_not_retry_non_draining_503_responses(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.return_value = json_response(
+                503,
+                {"detail": "Busy"},
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(Exception) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertIn("Busy", str(ctx.exception))
+            mock_sleep.assert_not_called()
+
+    def test_run_solver_does_not_retry_malformed_json_503_responses(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.return_value = FakeResponse(503, "not-json")
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(Exception) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(str(ctx.exception), "Failed retrieving data.")
+            mock_sleep.assert_not_called()
+
+    def test_run_solver_does_not_retry_other_5xx_responses(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.return_value = json_response(
+                500,
+                {"detail": "Draining"},
+            )
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(Exception) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertIn("Draining", str(ctx.exception))
+            mock_sleep.assert_not_called()
+
+    def test_run_solver_preserves_mixed_503_then_202_then_200_flow(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                FakeResponse(202, "{}"),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            self.assertEqual(
+                mock_sleep.call_args_list,
+                [call(60.0), call(5)],
+            )
+
+    def test_run_solver_preserves_mixed_202_then_503_then_200_flow(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            env.requests.post.side_effect = [
+                FakeResponse(202, "{}"),
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                json_response(200, {"results": build_solver_results_payload()}),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                results = client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(results.getNumberOfResults(), 1)
+            self.assertEqual(
+                mock_sleep.call_args_list,
+                [call(5), call(60.0)],
+            )
+
+    def test_run_solver_enforces_cumulative_drain_wait_budget(self):
+        with solverai_test_environment() as env:
+            module = env.module("SolverAiClientCompute")
+            input_module = env.module("SolverAiComputeInput")
+            exceptions_module = env.module("SolverAiClientExceptions")
+            env.requests.post.side_effect = [
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+                FakeResponse(202, "{}"),
+                json_response(
+                    503,
+                    {"detail": "Draining"},
+                    headers={"Retry-After": "60"},
+                ),
+            ]
+            client = module.SolverAiClientCompute(
+                "http://computer:8001",
+                "token",
+                "problem-1",
+                drain_max_retries=2,
+                drain_max_wait_seconds=61,
+            )
+            compute_input = input_module.SolverAiComputeInput("problem-1")
+            original_sleep = module.sleep
+            mock_sleep = Mock()
+            module.sleep = mock_sleep
+
+            try:
+                with self.assertRaises(
+                    exceptions_module.SolverAiDrainingException
+                ) as ctx:
+                    client.runSolver(compute_input)
+            finally:
+                module.sleep = original_sleep
+
+            self.assertEqual(ctx.exception.retry_after_seconds, 60)
+            self.assertEqual(
+                mock_sleep.call_args_list,
+                [call(60.0), call(5)],
+            )
 
 
 if __name__ == "__main__":

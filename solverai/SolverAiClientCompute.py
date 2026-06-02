@@ -1,12 +1,19 @@
 import requests
 import json
+import math
+import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from time import sleep
 from typing import Optional
 
 from .SolverAiComputeInput import SolverAiComputeInput
 from .SolverAiComputeResults import SolverAiComputeResults
-from .SolverAiClientExceptions import SetupInExecutionException
+from .SolverAiClientExceptions import (
+    SetupInExecutionException,
+    SolverAiDrainingException,
+)
 
 
 @dataclass(frozen=True)
@@ -25,12 +32,25 @@ class SolverAiProblemStatusInfo:
 
 class SolverAiClientCompute:
 
-    def __init__(self, computerUrl: str, token: str, problemId: str) -> None:
+    def __init__(
+        self,
+        computerUrl: str,
+        token: str,
+        problemId: str,
+        drain_max_retries: int = 1,
+        drain_retry_default_seconds: float = 60,
+        honor_retry_after: bool = True,
+        drain_max_wait_seconds: Optional[float] = None,
+    ) -> None:
         self.__base_url_Computer = computerUrl + "/"
         self.__problemId = problemId
         self.__headers = {
             "Authorization": f"Token {token}"
         }
+        self.__drain_max_retries = drain_max_retries
+        self.__drain_retry_default_seconds = drain_retry_default_seconds
+        self.__honor_retry_after = honor_retry_after
+        self.__drain_max_wait_seconds = drain_max_wait_seconds
 
     @staticmethod
     def __isStatusCodeOk(response):
@@ -63,6 +83,61 @@ class SolverAiClientCompute:
             return json.loads(response.text)
         except Exception:
             raise Exception('Failed retrieving data.')
+
+    @staticmethod
+    def __parseRetryAfterSeconds(retry_after_value):
+        if retry_after_value is None:
+            return None
+
+        stripped_value = str(retry_after_value).strip()
+        if not stripped_value:
+            return None
+
+        try:
+            parsed_seconds = float(stripped_value)
+            if not math.isfinite(parsed_seconds):
+                return None
+            if parsed_seconds < 0:
+                return 0.0
+            return parsed_seconds
+        except ValueError:
+            pass
+
+        try:
+            parsed_datetime = parsedate_to_datetime(stripped_value)
+            if parsed_datetime.tzinfo is None:
+                parsed_datetime = parsed_datetime.replace(tzinfo=timezone.utc)
+            wait_seconds = (
+                parsed_datetime - datetime.now(timezone.utc)
+            ).total_seconds()
+            if wait_seconds < 0:
+                return 0.0
+            return wait_seconds
+        except Exception:
+            return None
+
+    @classmethod
+    def __isControlledDraining(cls, response):
+        if response.status_code != 503:
+            return False
+
+        try:
+            data = json.loads(response.text)
+        except Exception:
+            return False
+
+        return isinstance(data, dict) and data.get("detail") == "Draining"
+
+    @classmethod
+    def __buildDrainingException(cls, response):
+        headers = getattr(response, "headers", {}) or {}
+        return SolverAiDrainingException(
+            status_code=response.status_code,
+            detail="Draining",
+            retry_after_seconds=cls.__parseRetryAfterSeconds(
+                headers.get("Retry-After")
+            ),
+        )
 
     @staticmethod
     def __normalizeStatusState(status_code, raw_status_text):
@@ -117,11 +192,46 @@ class SolverAiClientCompute:
             error_origin='unknown' if state == 'ERROR' else None,
         )
 
-    def getInputsOutputs(self):
+    def __runWithDrainRetry(self, operation):
+        drain_retries_used = 0
+        drain_wait_used = 0.0
+
+        while True:
+            try:
+                return operation()
+            except SolverAiDrainingException as error:
+                if drain_retries_used >= self.__drain_max_retries:
+                    raise
+
+                wait_seconds = None
+                if (
+                    self.__honor_retry_after
+                    and error.retry_after_seconds is not None
+                ):
+                    wait_seconds = error.retry_after_seconds
+                else:
+                    wait_seconds = (
+                        self.__drain_retry_default_seconds + random.random()
+                    )
+
+                if (
+                    self.__drain_max_wait_seconds is not None
+                    and drain_wait_used + wait_seconds >
+                    self.__drain_max_wait_seconds
+                ):
+                    raise
+
+                sleep(wait_seconds)
+                drain_retries_used += 1
+                drain_wait_used += wait_seconds
+
+    def __getInputsOutputsOnce(self):
         headers = self.__headers.copy()
         headers["Content-Type"] = "application/json"
         url = f'{self.__base_url_Computer}problem_setup/{self.__problemId}'
         response = requests.get(url, headers=headers)
+        if self.__isControlledDraining(response):
+            raise self.__buildDrainingException(response)
         if self.__isStatusCodeOk(response):
             data = self.__parseJsonResponse(response)
             try:
@@ -129,6 +239,9 @@ class SolverAiClientCompute:
             except Exception:
                 raise Exception('Failed retrieving data.')
         raise Exception(f'Failed with code: {self.__parseJsonResponse(response)}.')
+
+    def getInputsOutputs(self):
+        return self.__runWithDrainRetry(self.__getInputsOutputsOnce)
 
     def getProblemSetup(self):
         return self.getInputsOutputs()
@@ -139,6 +252,8 @@ class SolverAiClientCompute:
         url = f'{self.__base_url_Computer}solvejson/'
         jsonData = input.getJson()
         response = requests.post(url, headers=headers, data=jsonData)
+        if self.__isControlledDraining(response):
+            raise self.__buildDrainingException(response)
         if self.__isStatusCodeOk(response):
             if self.__isSetupInExecution(response):
                 raise SetupInExecutionException()
@@ -148,8 +263,11 @@ class SolverAiClientCompute:
             raise Exception(f'{self.__parseJsonResponse(response)}.')
 
     def runSolver(self, input: SolverAiComputeInput) -> SolverAiComputeResults:
-        while True:
-            try:
-                return self._runSolver(input)
-            except SetupInExecutionException:
-                sleep(5)
+        def run_until_setup_complete():
+            while True:
+                try:
+                    return self._runSolver(input)
+                except SetupInExecutionException:
+                    sleep(5)
+
+        return self.__runWithDrainRetry(run_until_setup_complete)

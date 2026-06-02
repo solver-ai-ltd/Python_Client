@@ -30,13 +30,14 @@ class FakeDataFrame:
 
 
 class FakeResponse:
-    def __init__(self, status_code, text):
+    def __init__(self, status_code, text, headers=None):
         self.status_code = status_code
         self.text = text
+        self.headers = dict(headers or {})
 
 
-def json_response(status_code, payload):
-    return FakeResponse(status_code, json.dumps(payload))
+def json_response(status_code, payload, headers=None):
+    return FakeResponse(status_code, json.dumps(payload), headers=headers)
 
 
 def write_temp_text_file(directory, name, content):

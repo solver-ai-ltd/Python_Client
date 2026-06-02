@@ -15,6 +15,7 @@ class PublicImportTests(unittest.TestCase):
                 "SolverAiClientCompute",
                 "SolverAiProblemStatusInfo",
                 "SetupInExecutionException",
+                "SolverAiDrainingException",
                 "SolverAiClientSetup",
                 "SolverAiComputeInput",
                 "SolverAiComputeResults",
