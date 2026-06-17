@@ -406,7 +406,9 @@ class SolverAiClientSetup:
         vectorizationIndices: str = ''
     ):
         _filePath_or_df = None
-        if filePath_or_df is not None or filePath_or_df != '':
+        if filePath_or_df is not None and not (
+            isinstance(filePath_or_df, str) and filePath_or_df == ''
+        ):
             _filePath_or_df = (filePath_or_df, 'csv')
         data = dict()
         if name:
@@ -445,7 +447,9 @@ class SolverAiClientSetup:
         categoricalVariablesStringIn: str = ''
     ):
         _filePath_or_df = None
-        if filePath_or_df is not None or filePath_or_df != '':
+        if filePath_or_df is not None and not (
+            isinstance(filePath_or_df, str) and filePath_or_df == ''
+        ):
             _filePath_or_df = (filePath_or_df, 'csv')
         data = dict()
         if name:
