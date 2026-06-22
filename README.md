@@ -3,7 +3,7 @@
 `solverai` is the Python client package for working with the SOLVER-AI
 DataManager and Computer APIs.
 
-Current package version in `pyproject.toml`: `2025.1.0a16`
+Current package version in `pyproject.toml`: `2026.1.0r1`
 
 ## Requirements
 
